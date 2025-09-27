@@ -1,0 +1,13 @@
+[project]
+name = "telemetry-service"
+version = "0.1.0"
+description = "Realistic time-series telemetry generator for power assets"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.117.1",
+    "numpy>=2.3.3",
+    "pandas>=2.3.2",
+    "pydantic>=2.11.9",
+    "uvicorn[standard]>=0.37.0",
+]
