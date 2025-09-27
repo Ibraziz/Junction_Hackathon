@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from typing import Iterator, List, Dict, Any
 from collections import defaultdict
 
@@ -21,9 +21,11 @@ class TelemetryGenerator:
         self.fuel_rate_at_max = 220 + np.random.uniform(-30, 50)  # kg/h
         self.base_temp = 25 + np.random.uniform(-5, 15)  # °C
 
-    def _seed_rng(self, base_time: datetime) -> np.random.Generator:
-        """Create a seeded RNG based on asset_id and time."""
-        seed = hash(f"{self.asset_id}_{base_time.isoformat()}") % (2**32)
+    def _seed_rng(self, base_time: datetime, time_offset: int = 0) -> np.random.Generator:
+        """Create a seeded RNG based on asset_id and time with offset."""
+        # Use hours from base_time as additional seed component
+        hours_offset = (base_time.hour * 60 + base_time.minute + time_offset) // 60
+        seed = hash(f"{self.asset_id}_{base_time.date()}_{hours_offset}") % (2**32)
         return np.random.default_rng(seed)
 
     def _smooth_noise(self, rng: np.random.Generator, size: int,
@@ -48,9 +50,6 @@ class TelemetryGenerator:
         if n_points == 0:
             return []
 
-        # Seed RNG based on the request time
-        rng = self._seed_rng(start_time)
-
         # Generate realistic patterns
         minutes = np.arange(n_points)
 
@@ -62,8 +61,16 @@ class TelemetryGenerator:
         day_of_week = (minutes // (24 * 60)) % 7
         weekend_factor = np.where(day_of_week >= 5, 0.7, 1.0)
 
-        # Add smooth noise
-        noise = self._smooth_noise(rng, n_points, base_frequency=0.05)
+        # Add time-varying smooth noise by chunking into hourly blocks
+        noise = np.zeros(n_points)
+        for hour_start in range(0, n_points, 60):  # 60-minute chunks
+            hour_end = min(hour_start + 60, n_points)
+            chunk_minutes = minutes[hour_start:hour_end]
+            if len(chunk_minutes) > 0:
+                # Create RNG for this hour based on the actual timestamp
+                chunk_time = start_time + timedelta(minutes=int(chunk_minutes[0]))
+                rng = self._seed_rng(chunk_time, hour_start)
+                noise[hour_start:hour_end] = self._smooth_noise(rng, len(chunk_minutes), base_frequency=0.05)
 
         # Combine patterns
         load_factor = 0.6 + 0.3 * daily_pattern * weekend_factor + 0.1 * noise
