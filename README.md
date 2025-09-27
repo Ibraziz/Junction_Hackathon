@@ -1,140 +1,187 @@
-# Fingrid API Mirror Service
+# Power Plant Monitoring Dashboard
 
-A clean, minimal FastAPI service that mirrors Fingrid API endpoints for energy data with placeholder Open-Meteo weather integration.
+A comprehensive real-time monitoring system that combines power plant telemetry data with national energy grid statistics. The system provides a unified dashboard displaying both local power plant performance and Finnish national energy production data.
+
+## Architecture
+
+The system consists of three main components:
+
+- **Dashboard**: Streamlit-based web interface for visualization
+- **Telemetry Service**: FastAPI service providing power plant operational data  
+- **External Service**: Fingrid API mirror for Finnish national energy grid data
 
 ## Features
 
-- **FastAPI Service**: Modern, async Python web framework
-- **Fingrid API Mirror**: Clean endpoints mirroring all key Fingrid datasets
-- **Open-Meteo Placeholder**: Ready for weather data integration
-- **Environment Variables**: Secure API key management
-- **Type Safety**: Full Pydantic validation
-- **Async HTTP**: Non-blocking requests with httpx
+- **Real-time Monitoring**: Live power plant telemetry and grid data
+- **Unified Dashboard**: Combined view of local and national energy metrics
+- **Automatic Data Fetching**: Fixed 7-day data window, no user configuration needed
+- **Interactive Visualizations**: Plotly charts for power generation, grid performance
+- **Service Health Monitoring**: Real-time connectivity status for all services
+- **Clean Architecture**: Microservices design with FastAPI and Streamlit
 
-## Setup
+## Quick Start
 
-### 1. Initialize Virtual Environment
+### 1. Start All Services
 
-```bash
-uv venv
-source .venv/bin/activate  # Linux/Mac
-# or .venv\Scripts\activate  # Windows
+**Terminal 1 - Telemetry Service (Port 8002):**
+```powershell
+cd telemetry-service
+python api.py
 ```
 
-### 2. Install Dependencies
-
-```bash
-uv add fastapi httpx uvicorn pydantic-settings
+**Terminal 2 - External Service (Port 8000):**
+```powershell
+cd external-service  
+python app.py
 ```
 
-### 3. Configure Environment
-
-Copy the example environment file:
-
-```bash
-cp .env.example .env
+**Terminal 3 - Dashboard (Port 8501):**
+```powershell
+cd dashboard
+python app.py
 ```
 
-Edit `.env` and add your Fingrid API key:
+### 2. Access the Dashboard
+
+Open your browser and navigate to: `http://localhost:8501`
+
+The dashboard will automatically display:
+- Power plant telemetry data (last 7 days)
+- Finnish national energy grid statistics
+- Combined energy production overview
+- Real-time grid performance metrics
+
+## Service Configuration
+
+### External Service Setup
+
+If using your own Fingrid API key, create `external-service/.env`:
 
 ```
 FINGRID_API_KEY=your_fingrid_api_key_here
 ```
 
-### 4. Run the Service
+## Dashboard Features
 
-```bash
-uv run app.py
-```
+The monitoring dashboard provides three main visualization sections:
 
-Or using uvicorn directly:
+### 1. Power Plant Overview
+- **Generator Power Output**: Real-time power generation from plant telemetry
+- **Operational Status**: Current plant performance metrics
+- **Historical Trends**: 7-day power generation history
 
-```bash
-uv run uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
+### 2. National Energy Mix  
+- **Nuclear Power Production**: Finnish nuclear power output
+- **Wind Power Generation**: National wind energy production
+- **Total Consumption**: Country-wide electricity consumption
+
+### 3. Grid Performance
+- **System Frequency**: Real-time grid frequency monitoring
+- **Grid Stability**: Power system operational state
+- **Service Health**: Connectivity status for all data sources
 
 ## API Endpoints
 
-### Production Data
+### Telemetry Service (Port 8002)
+- `GET /health` - Service health check
+- `GET /telemetry` - Power plant operational data (1440 data points)
+
+### External Service (Port 8000)
+- `GET /health` - Service health check  
 - `GET /api/production/nuclear-power` - Real-time nuclear power production
-- `GET /api/production/hydro-power` - Real-time hydro power production
 - `GET /api/production/wind-power` - Real-time wind power production
-- `GET /api/production/total-real-time` - Real-time total production
-- `GET /api/production/total` - Total electricity production
-
-### Consumption & Grid
 - `GET /api/consumption/electricity` - Real-time electricity consumption
-- `GET /api/grid/kinetic-energy` - Nordic power system kinetic energy
-- `GET /api/grid/state` - Power system state
-- `GET /api/grid/frequency` - Grid frequency
+- `GET /api/grid/frequency` - Grid frequency data
 
-### Market & Pricing
-- `GET /api/market/down-regulation-price` - Down-regulation bid price
-- `GET /api/market/emission-factor` - Emission factor for Finland
+## Data Integration
 
-### Storage & Forecast
-- `GET /api/storage/battery-charging` - Battery storage charging power
-- `GET /api/forecast/wind-power` - Wind power generation forecast
+The system automatically fetches and combines data from multiple sources:
 
-### Weather (Open-Meteo)
-- `GET /api/weather/current` - Current weather data
-- `GET /api/weather/forecast` - Weather forecast (up to 16 days, with optional past days)
-- `GET /api/weather/historical` - Historical weather data
+### Telemetry Service
+- Provides simulated power plant operational data
+- 1440 data points covering 24-hour operational cycles  
+- Includes power output, efficiency metrics, and operational status
 
-## Query Parameters
+### External Service (Fingrid API Mirror)
+- Real-time Finnish national energy grid data
+- Nuclear and wind power production statistics
+- National electricity consumption patterns
+- Grid frequency and stability metrics
 
-All Fingrid endpoints support these optional parameters:
-- `start_time`: ISO 8601 formatted datetime
-- `end_time`: ISO 8601 formatted datetime
-- `format`: json, xml, or csv (default: json)
-- `page`: Page number (default: 1)
-- `page_size`: Items per page, 1-1000 (default: 100)
+### Fixed Date Range
+- Dashboard displays data from the last 7 days
+- No user configuration required - fully automated
+- Consistent time windows for trend analysis
 
-## Example Usage
+## Example API Usage
 
 ```bash
-# Get nuclear power data for the last 24 hours
-curl "http://localhost:8000/api/production/nuclear-power?start_time=2025-09-26T00:00:00Z&end_time=2025-09-27T00:00:00Z"
+# Check service health
+curl "http://localhost:8002/health"
+curl "http://localhost:8000/health"
 
-# Get wind power forecast
-curl "http://localhost:8000/api/forecast/wind-power"
+# Get telemetry data
+curl "http://localhost:8002/telemetry"
 
-# Get current weather
-curl "http://localhost:8000/api/weather/current?latitude=60.1699&longitude=24.9384"
+# Get nuclear power data
+curl "http://localhost:8000/api/production/nuclear-power"
 
-# Get 7-day forecast with 2 past days
-curl "http://localhost:8000/api/weather/forecast?latitude=60.1699&longitude=24.9384&days=7&past_days=2"
-
-# Get historical weather data
-curl "http://localhost:8000/api/weather/historical?latitude=60.1699&longitude=24.9384&start_date=2025-09-20&end_date=2025-09-27"
+# Get wind power data  
+curl "http://localhost:8000/api/production/wind-power"
 ```
 
 ## Project Structure
 
 ```
-├── app.py              # Main FastAPI application
-├── .env                # Environment variables (not tracked)
-├── .env.example        # Environment variables template
-├── .venv/              # Virtual environment (ignored)
-├── .python-version     # Python version pin
-├── pyproject.toml      # Project dependencies
-└── README.md           # This file
+Junction_Hackathon/
+├── dashboard/                    # Streamlit Dashboard (Port 8501)
+│   ├── app.py                   # Main dashboard application
+│   └── requirements.txt         # Dashboard dependencies
+├── telemetry-service/           # Telemetry API (Port 8002)  
+│   ├── api.py                   # FastAPI telemetry service
+│   ├── main.py                  # Service entry point
+│   ├── telemetry_generator.py   # Data generation logic
+│   └── pyproject.toml           # Service dependencies
+├── external-service/            # External API Mirror (Port 8000)
+│   ├── app.py                   # Fingrid API mirror service
+│   └── pyproject.toml           # API mirror dependencies  
+├── main.py                      # Project entry point
+├── uv.lock                      # Dependency lock file
+└── README.md                    # Project documentation
 ```
 
-## Security Notes
+## Technical Details
 
-- The Fingrid API key is loaded from environment variables
-- Never commit your actual `.env` file to version control
-- The service includes rate limiting considerations
-- All endpoints include proper error handling
+### Dependencies
+- **Streamlit**: Web dashboard framework
+- **FastAPI**: API service framework  
+- **Plotly**: Interactive visualization library
+- **Pandas**: Data manipulation and analysis
+- **Requests**: HTTP client for API communication
+- **Uvicorn**: ASGI server for FastAPI services
 
-## Weather API Features
+### Data Flow
+1. **Telemetry Service** generates simulated power plant data
+2. **External Service** fetches real Finnish energy grid data from Fingrid API
+3. **Dashboard** combines both data sources into unified visualizations
+4. All services communicate via REST API calls
+5. Dashboard refreshes data automatically every few seconds
 
-The Open-Meteo integration now provides:
+### Port Configuration
+- **8501**: Streamlit dashboard interface
+- **8502**: Telemetry service API  
+- **8000**: External service (Fingrid mirror)
 
-- **Current Weather**: Real-time temperature, wind speed/direction, and weather codes
-- **Forecast**: Up to 16 days ahead with hourly data, including past days (up to 90)
-- **Historical Data**: Access to weather archive for analysis
-- **Comprehensive Data**: Temperature, humidity, wind speed, precipitation, and weather codes
+## Troubleshooting
 
-All weather endpoints include proper validation for coordinate ranges and date formats.
+### Service Health Checks
+The dashboard displays real-time service status. If any service shows as disconnected:
+
+1. Ensure all three services are running on their respective ports
+2. Check firewall settings if running on different machines
+3. Verify API key configuration for external service if needed
+
+### Common Issues
+- **Port conflicts**: Ensure no other services are using ports 8000, 8501, 8502
+- **Missing dependencies**: Run `pip install -r requirements.txt` in dashboard folder
+- **API timeouts**: Check internet connection for Fingrid API access
