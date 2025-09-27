@@ -76,9 +76,10 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 - `GET /api/storage/battery-charging` - Battery storage charging power
 - `GET /api/forecast/wind-power` - Wind power generation forecast
 
-### Weather (Placeholder)
+### Weather (Open-Meteo)
 - `GET /api/weather/current` - Current weather data
-- `GET /api/weather/forecast` - Weather forecast
+- `GET /api/weather/forecast` - Weather forecast (up to 16 days, with optional past days)
+- `GET /api/weather/historical` - Historical weather data
 
 ## Query Parameters
 
@@ -98,8 +99,14 @@ curl "http://localhost:8000/api/production/nuclear-power?start_time=2025-09-26T0
 # Get wind power forecast
 curl "http://localhost:8000/api/forecast/wind-power"
 
-# Get weather placeholder (lat/lon required)
+# Get current weather
 curl "http://localhost:8000/api/weather/current?latitude=60.1699&longitude=24.9384"
+
+# Get 7-day forecast with 2 past days
+curl "http://localhost:8000/api/weather/forecast?latitude=60.1699&longitude=24.9384&days=7&past_days=2"
+
+# Get historical weather data
+curl "http://localhost:8000/api/weather/historical?latitude=60.1699&longitude=24.9384&start_date=2025-09-20&end_date=2025-09-27"
 ```
 
 ## Project Structure
@@ -121,10 +128,13 @@ curl "http://localhost:8000/api/weather/current?latitude=60.1699&longitude=24.93
 - The service includes rate limiting considerations
 - All endpoints include proper error handling
 
-## Next Steps
+## Weather API Features
 
-To complete the Open-Meteo integration:
-1. Visit [Open-Meteo API docs](https://open-meteo.com/)
-2. Implement the actual weather data fetching in the placeholder endpoints
-3. Add weather models to `app.py`
-4. Update the README with available weather parameters
+The Open-Meteo integration now provides:
+
+- **Current Weather**: Real-time temperature, wind speed/direction, and weather codes
+- **Forecast**: Up to 16 days ahead with hourly data, including past days (up to 90)
+- **Historical Data**: Access to weather archive for analysis
+- **Comprehensive Data**: Temperature, humidity, wind speed, precipitation, and weather codes
+
+All weather endpoints include proper validation for coordinate ranges and date formats.
