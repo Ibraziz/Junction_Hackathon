@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
+import json
+from llm_pipeline import run_analysis_pipeline, run_analysis_pipeline_with_tools
 
 # Page configuration
 st.set_page_config(
@@ -83,6 +85,78 @@ def get_external_data_date_range(external_data):
         return min(all_times), max(all_times)
     return None, None
 
+def render_chart(chart_config: dict, chart_id: str):
+    """Renders a Chart.js chart using Streamlit's HTML component."""
+    chart_options = chart_config.get('options', {})
+    if 'plugins' not in chart_options:
+        chart_options['plugins'] = {}
+    chart_options['plugins']['title'] = {
+        'display': True,
+        'text': chart_config.get('title', 'Chart'),
+        'font': {'size': 16},
+        'color': '#FFFFFF' # White title for dark mode
+    }
+    # Ensure legend labels are visible in dark mode
+    chart_options['plugins']['legend'] = {
+        'labels': {'color': '#FFFFFF'}
+    }
+
+    config = {
+        'type': chart_config.get('type'),
+        'data': chart_config.get('data'),
+        'options': chart_options,
+    }
+    config_json = json.dumps(config)
+
+    chart_html = f"""
+    <div style="width: 100%; height: 400px;">
+        <canvas id="{chart_id}"></canvas>
+    </div>
+    <script>
+    const ctx_{chart_id} = document.getElementById('{chart_id}');
+    if (ctx_{chart_id}) {{
+        new Chart(ctx_{chart_id}, {config_json});
+    }}
+    </script>
+    """
+    # Use st.components.v1.html to render the component, including the Chart.js library
+    st.components.v1.html(f"""
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {chart_html}
+    """, height=400)
+
+def render_html_component(html_content: str, component_id: str = None):
+    """Renders an HTML component using Streamlit's HTML component."""
+    if not html_content:
+        return
+
+    # Create a container with proper styling
+    container_style = """
+    <style>
+    .html-component-container {
+        border: 1px solid #4e8b8e;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 16px 0;
+        background-color: #0e1117;
+    }
+    .html-component-container h3 {
+        color: #fafafa;
+        margin-top: 0;
+        margin-bottom: 16px;
+    }
+    </style>
+    """
+
+    html_with_container = f"""
+    {container_style}
+    <div class="html-component-container" id="{'html_component_' + component_id if component_id else 'html_component'}">
+        {html_content}
+    </div>
+    """
+
+    st.components.v1.html(html_with_container, height=None)
+
 def main():
     # Header
     st.title("⚡ Power Plant Monitoring Dashboard")
@@ -151,30 +225,30 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        avg_power = df['power_gen_MW'].mean()
-        max_power = df['power_gen_MW'].max()
+        avg_power = df.get('power_gen_MW', pd.Series(dtype=float)).mean()
+        max_power = df.get('power_gen_MW', pd.Series(dtype=float)).max()
         st.metric(
-            "Average Power Output", 
+            "Average Power Output",
             f"{avg_power:.1f} MW",
             delta=f"Peak: {max_power:.1f} MW"
         )
-    
+
     with col2:
-        avg_efficiency = df['efficiency_percent'].mean()
+        avg_efficiency = df.get('efficiency_percent', pd.Series(dtype=float)).mean()
         st.metric(
-            "Average Efficiency", 
+            "Average Efficiency",
             f"{avg_efficiency:.1f}%"
         )
-    
+
     with col3:
-        avg_fuel_flow = df['fuel_flow_kg_h'].mean()
+        avg_fuel_flow = df.get('fuel_flow_kg_h', pd.Series(dtype=float)).mean()
         st.metric(
-            "Avg Fuel Consumption", 
+            "Avg Fuel Consumption",
             f"{avg_fuel_flow:.0f} kg/h"
         )
-    
+
     with col4:
-        avg_engine_load = df['engine_load_percent'].mean()
+        avg_engine_load = df.get('engine_load_percent', pd.Series(dtype=float)).mean()
         st.metric(
             "Average Engine Load", 
             f"{avg_engine_load:.1f}%"
@@ -360,7 +434,48 @@ def main():
                     st.warning("⚠️ Emission data not available")
         else:
             st.warning("⚠️ No external data available for consumption or emissions")
-    
+
+        # --- AI-Powered Analysis Section ---
+        st.markdown("---")
+        st.subheader("🤖 Operational Analysis")
+        st.markdown("Click the button below to get an AI-driven summary, suggested action, and insightful charts based on the latest data from all sources.")
+
+        if st.button("Run Analysis", type="primary"):
+            with st.spinner("🧠 Analyzing data with Gemini... This may take a moment."):
+                analysis_result = run_analysis_pipeline_with_tools()
+
+            if "error" in analysis_result:
+                st.error(f"**Analysis Failed:** {analysis_result['error']}")
+            else:
+                col1, col2 = st.columns([2, 2])
+                with col1:
+                    st.metric(
+                        label="Suggested Action",
+                        value=analysis_result.get("suggested_action", "N/A").replace("_", " ").title()
+                    )
+                    st.info(f"**Reasoning:** {analysis_result.get('action_reasoning', 'N/A')}")
+
+                with col2:
+                    st.markdown(f"**Summary:** {analysis_result.get('summary', 'N/A')}")
+                    keywords = analysis_result.get("keywords", [])
+                    st.markdown(f"**Keywords:** `{'`, `'.join(keywords)}`")
+
+                # Display HTML component if provided
+                html_component = analysis_result.get("html_component")
+                if html_component:
+                    st.markdown("---")
+                    render_html_component(html_component, "ai_analysis")
+
+                st.markdown("---")
+                st.subheader("📊 Charts")
+
+                charts = analysis_result.get("charts", [])
+                if not charts:
+                    st.warning("The AI analysis did not generate any charts.")
+                else:
+                    for i, chart_conf in enumerate(charts):
+                        render_chart(chart_conf, f"ai_chart_{i}")
+
     else:
         st.error("❌ Failed to fetch telemetry data. Please check the telemetry service.")
 

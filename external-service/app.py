@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
+import asyncio
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
 
 
 # Pydantic models for response validation
@@ -288,6 +290,57 @@ async def historical_weather(
     return await fetch_open_meteo_data("archive", params)
 
 
+async def fetch_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    params: Optional[Dict[str, Any]] = None,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> httpx.Response:
+    """Make HTTP request with exponential backoff retry logic"""
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.get(url, headers=headers, params=params)
+
+            # If successful, return the response
+            if response.status_code == 200:
+                return response
+
+            # Handle rate limiting (429) with retry
+            if response.status_code == 429:
+                if attempt < max_retries:
+                    # Extract retry-after header if available
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        delay = float(retry_after)
+                    else:
+                        # Exponential backoff with jitter
+                        delay = base_delay * (2 ** attempt) + (0.1 * attempt)
+
+                    await asyncio.sleep(delay)
+                    continue
+
+            # For other errors, raise immediately
+            response.raise_for_status()
+
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            if attempt == max_retries:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to fetch data after {max_retries} retries: {str(e)}",
+                )
+            # Wait before retrying
+            delay = base_delay * (2 ** attempt) + (0.1 * attempt)
+            await asyncio.sleep(delay)
+
+    # This should never be reached
+    raise HTTPException(
+        status_code=500,
+        detail=f"Failed to fetch data after {max_retries} retries",
+    )
+
+
 async def fetch_fingrid_data(
     dataset_id: int,
     start_time: Optional[datetime],
@@ -312,14 +365,19 @@ async def fetch_fingrid_data(
     if end_time:
         params["end_time"] = end_time.isoformat()
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=40.0) as client:
         try:
-            response = await client.get(url, headers=headers, params=params)
-            response.raise_for_status()
+            response = await fetch_with_retry(
+                client, url, headers=headers, params=params,
+                max_retries=3, base_delay=1.0
+            )
             return response.json()
-        except httpx.HTTPError as e:
+        except HTTPException:
+            # Re-raise HTTPException as-is
+            raise
+        except Exception as e:
             raise HTTPException(
-                status_code=e.response.status_code if hasattr(e, "response") else 500,
+                status_code=500,
                 detail=f"Failed to fetch data from Fingrid API: {str(e)}",
             )
 
@@ -328,14 +386,19 @@ async def fetch_open_meteo_data(endpoint: str, params: Dict[str, Any]) -> Dict[s
     """Fetch data from Open-Meteo API"""
     url = f"{settings.open_meteo_base_url}/{endpoint}"
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=40.0) as client:
         try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
+            response = await fetch_with_retry(
+                client, url, params=params,
+                max_retries=3, base_delay=1.0
+            )
             return response.json()
-        except httpx.HTTPError as e:
+        except HTTPException:
+            # Re-raise HTTPException as-is
+            raise
+        except Exception as e:
             raise HTTPException(
-                status_code=e.response.status_code if hasattr(e, "response") else 500,
+                status_code=500,
                 detail=f"Failed to fetch data from Open-Meteo API: {str(e)}",
             )
 
