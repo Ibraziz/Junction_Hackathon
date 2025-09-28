@@ -116,6 +116,11 @@ class LLMAnalysisResult(BaseModel):
     charts: List[ChartJSConfig] = Field(description="A list of 2-3 Chart.js configurations for insightful visualizations.")
     html_component: Optional[str] = Field(description="An HTML component for embedding in a dashboard.", default=None)
 
+class LLMQueryResponse(BaseModel):
+    response: str = Field(description="A comprehensive response to the user's query.")
+    charts: Optional[List[ChartJSConfig]] = Field(description="Optional Chart.js configurations for visualizations relevant to the query.", default=None)
+    html_component: Optional[str] = Field(description="An optional HTML component for embedding in a dashboard.", default=None)
+
 # --- 3. Data Fetching Functions ---
 
 def fetch_recent_telemetry(asset_id: str, hours: int = 24) -> pd.DataFrame:
@@ -601,3 +606,167 @@ def run_analysis_pipeline(asset_id: str = "power-plant-001", lat: float = 60.17,
         return {"error": f"Gemini API error: {e}"}
     except Exception as e:
         return {"error": f"Failed to process LLM response: {e}"}
+
+# --- 7. General Query Pipeline Function ---
+
+def run_query_pipeline(user_query: str, include_context: bool = True) -> dict:
+    """
+    Processes a user query with access to tool calling capabilities.
+    
+    Args:
+        user_query: The user's question or request
+        include_context: Whether to include current telemetry/grid data as context
+        
+    Returns:
+        Dictionary with the query response or an error message.
+    """
+    if not client:
+        return {"error": "GEMINI_API_KEY environment variable not set. Please configure it to use the AI query feature."}
+
+    # System prompt for general query handling with tool access
+    system_prompt = """
+You are an expert energy analyst with access to:
+1. Real-time power plant telemetry and grid data (if context is provided)
+2. A historical database of Finland's electricity market data (2015-2020)
+
+You have access to database tools to query historical energy data. The main table is 'time_series_60min_singleindex' with columns:
+- utc_timestamp: UTC timestamp
+- FI_load_actual_entsoe_transparency: Finland electricity consumption (MW)
+- FI_load_forecast_entsoe_transparency: Day-ahead load forecast (MW)  
+- FI_wind_onshore_generation_actual: Wind generation (MW)
+
+**Time Period**: January 1, 2015 - September 30, 2020
+**Data Granularity**: Hourly (60-minute intervals)
+**Data Level**: Country-level (not plant-level)
+
+You can create insightful visualizations using Chart.js configurations when relevant to the user's query.
+You can also create HTML components for dashboard embedding when useful.
+
+Your response should be comprehensive, accurate, and directly address the user's query.
+If you need to query historical data to provide context or answer the question, use the available database tools.
+
+DO NOT query large results. Use LIMIT and WHERE clauses to restrict data to relevant timeframes.
+
+Provide your response as a JSON object matching the LLMQueryResponse schema.
+"""
+
+    # Prepare context if requested
+    context_str = ""
+    if include_context:
+        try:
+            # Fetch current data for context
+            telemetry_df = fetch_recent_telemetry("power-plant-001")
+            grid_df = fetch_recent_grid_data()
+            weather_data = fetch_weather_data(60.17, 24.94)
+            
+            if not telemetry_df.empty or not grid_df.empty:
+                context_str = "\n\nCurrent Real-time Context:\n" + aggregate_for_llm(telemetry_df, grid_df, weather_data)
+        except Exception:
+            # If context fetching fails, continue without it
+            pass
+
+    user_prompt = f"""
+User Query: {user_query}
+{context_str}
+
+Please provide a comprehensive response to the user's query. Use the database tools if you need historical data to answer the question effectively.
+
+Provide your response as a JSON object matching the LLMQueryResponse schema.
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        # First attempt with tools
+        response = client.chat.completions.create(
+            model="gemini-2.5-pro",
+            messages=messages,
+            tools=SQLITE_TOOLS,
+            tool_choice="auto",
+            temperature=0.3,
+        )
+
+        # Handle tool calls
+        while response.choices[0].message.tool_calls:
+            # Add the assistant's response to messages
+            messages.append(response.choices[0].message)
+            
+            # Process each tool call
+            for tool_call in response.choices[0].message.tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+                
+                # Execute the appropriate function
+                if function_name == "execute_sql_query":
+                    result = execute_sql_query(function_args.get("query"), function_args.get("params"))
+                elif function_name == "get_table_schema":
+                    result = get_table_schema(function_args["table_name"])
+                elif function_name == "list_database_tables":
+                    result = list_database_tables()
+                else:
+                    result = json.dumps({"error": f"Unknown function: {function_name}"})
+                
+                # Add the tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result
+                })
+            
+            # Get the next response
+            response = client.chat.completions.create(
+                model="gemini-2.5-pro",
+                messages=messages,
+                tools=SQLITE_TOOLS,
+                tool_choice="auto",
+                temperature=0.3,
+            )
+
+        # Try to parse the final response as JSON
+        final_content = response.choices[0].message.content
+        try:
+            # Attempt to parse as JSON first
+            parsed_result = json.loads(final_content)
+            # Validate against our schema if possible
+            validated_result = LLMQueryResponse.model_validate(parsed_result)
+            return validated_result.model_dump()
+        except (json.JSONDecodeError, Exception) as parse_error:
+            # Fallback to structured output without tools
+            try:
+                fallback_response = client.chat.completions.parse(
+                    model="gemini-2.5-pro",
+                    messages=[
+                        {"role": "system", "content": system_prompt.replace("Provide your response as a JSON object matching the LLMQueryResponse schema.", "Provide your response as a JSON object matching the LLMQueryResponse schema. Previous parsing failed, ensure valid JSON format.")},
+                        {"role": "user", "content": user_prompt + f"\n\nNote: Previous response parsing failed. Please provide a valid JSON response conforming to the LLMQueryResponse schema."}
+                    ],
+                    response_format=LLMQueryResponse,
+                    temperature=0.3,
+                )
+                return fallback_response.choices[0].message.parsed.model_dump()
+            except Exception as fallback_error:
+                return {"error": f"Failed to parse LLM response and fallback failed: {parse_error}, {fallback_error}"}
+
+    except openai.APIError as e:
+        return {"error": f"Gemini API error: {e}"}
+    except Exception as e:
+        return {"error": f"Failed to process query: {e}"}
+
+# --- 8. Example Usage ---
+
+if __name__ == "__main__":
+    # Example usage of the new query pipeline function
+    
+    # Example 1: Query with context
+    result1 = run_query_pipeline("What were the peak electricity consumption hours in Finland during 2019?")
+    print("Query 1 Result:", result1)
+    
+    # Example 2: Query without context
+    result2 = run_query_pipeline("How does wind generation correlate with electricity consumption in Finland?", include_context=False)
+    print("Query 2 Result:", result2)
+    
+    # Example 3: Query asking for charts
+    result3 = run_query_pipeline("Show me a chart comparing Finland's electricity consumption patterns between summer and winter months")
+    print("Query 3 Result:", result3)
