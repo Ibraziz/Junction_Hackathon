@@ -167,20 +167,6 @@ def main():
     telemetry_healthy = check_telemetry_health()
     external_healthy = check_external_health()
     
-    # Service status
-    col1, col2 = st.columns(2)
-    with col1:
-        if telemetry_healthy:
-            st.success("✅ Telemetry Service: Connected")
-        else:
-            st.error("❌ Telemetry Service: Offline")
-            
-    with col2:
-        if external_healthy:
-            st.success("✅ External Service: Connected") 
-        else:
-            st.error("❌ External Service: Offline")
-    
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Dashboard", "💬 AI Chat"])
     
@@ -212,9 +198,6 @@ def render_dashboard_tab(telemetry_healthy, external_healthy):
     external_start_time_str = external_start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
     external_end_time_str = external_end_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    # Display telemetry data range
-    st.info(f"📊 Telemetry Data: {telemetry_start_datetime.strftime('%Y-%m-%d %H:%M')} to {telemetry_end_datetime.strftime('%Y-%m-%d %H:%M')} (24 hours)")
-    
     # Fetch telemetry data
     with st.spinner("🔄 Fetching power plant telemetry data..."):
         telemetry_data = fetch_telemetry_data(asset_id, telemetry_start_time_str, telemetry_end_time_str)
@@ -226,9 +209,6 @@ def render_dashboard_tab(telemetry_healthy, external_healthy):
     # Convert telemetry data to DataFrame
     df = pd.DataFrame(telemetry_data)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # Display telemetry data summary
-    st.success(f"✅ Retrieved {len(df)} telemetry data points")
     
     # Key Performance Metrics - Telemetry Only
     st.subheader("🏭 Power Plant Performance Metrics")
@@ -305,11 +285,8 @@ def render_dashboard_tab(telemetry_healthy, external_healthy):
             external_data['consumption'] = fetch_external_data_endpoint('api/consumption/electricity')
             external_data['emission'] = fetch_external_data_endpoint('api/market/emission-factor')
     
-    # Display external data availability
+    # Display charts if data is available
     if external_healthy and any(external_data.values()):
-        available_sources = [k for k, v in external_data.items() if v]
-        st.success(f"✅ National grid data available: {', '.join(available_sources)}")
-        
         # Get actual date range of external data
         ext_start_time, ext_end_time = get_external_data_date_range(external_data)
         
@@ -478,7 +455,6 @@ def render_dashboard_tab(telemetry_healthy, external_healthy):
                     render_html_component(html_component, "ai_analysis")
 
                 st.markdown("---")
-                st.subheader("📊 Charts")
 
                 charts = analysis_result.get("charts", [])
                 if not charts:
@@ -522,7 +498,6 @@ def render_chat_tab():
                     # Display charts if available
                     charts = response_data.get('charts')
                     if charts:
-                        st.markdown("**Generated Charts:**")
                         for j, chart_conf in enumerate(charts):
                             render_chart(chart_conf, f"chat_chart_{i}_{j}")
                     
