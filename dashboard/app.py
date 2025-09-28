@@ -130,6 +130,15 @@ def render_html_component(html_content: str, component_id: str = None):
     if not html_content:
         return
 
+    # Estimate height based on content length and structure
+    # Count line breaks and estimate height
+    line_count = html_content.count('\n') + html_content.count('<br>') + html_content.count('<p>')
+    table_count = html_content.count('<table>')
+    list_count = html_content.count('<ul>') + html_content.count('<ol>')
+    
+    # Base height calculation
+    estimated_height = max(200, min(800, 50 + line_count * 25 + table_count * 100 + list_count * 50))
+
     # Create a container with proper styling
     container_style = """
     <style>
@@ -139,11 +148,30 @@ def render_html_component(html_content: str, component_id: str = None):
         padding: 16px;
         margin: 16px 0;
         background-color: #0e1117;
+        overflow-y: auto;
+        max-height: 100vh;
     }
     .html-component-container h3 {
         color: #fafafa;
         margin-top: 0;
         margin-bottom: 16px;
+    }
+    .html-component-container p {
+        color: #fafafa;
+        margin-bottom: 8px;
+    }
+    .html-component-container ul, .html-component-container ol {
+        color: #fafafa;
+    }
+    .html-component-container table {
+        color: #fafafa;
+        border-collapse: collapse;
+        width: 100%;
+    }
+    .html-component-container th, .html-component-container td {
+        border: 1px solid #4e8b8e;
+        padding: 8px;
+        text-align: left;
     }
     </style>
     """
@@ -155,7 +183,7 @@ def render_html_component(html_content: str, component_id: str = None):
     </div>
     """
 
-    st.components.v1.html(html_with_container, height=None)
+    st.components.v1.html(html_with_container, height=estimated_height, scrolling=True)
 
 def main():
     # Header
