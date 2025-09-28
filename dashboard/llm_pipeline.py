@@ -186,6 +186,17 @@ def fetch_weather_data(lat: float, lon: float) -> dict:
     except requests.exceptions.RequestException:
         return {}
 
+def fetch_weather_forecast(lat: float, lon: float, days: int = 3) -> dict:
+    """Fetches weather forecast data for a given location."""
+    url = f"{EXTERNAL_API_URL}/api/weather/forecast"
+    params = {"latitude": lat, "longitude": lon, "days": days}
+    try:
+        response = requests.get(url, params=params, timeout=40)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException:
+        return {}
+
 # --- 4. Data Aggregation & Prompt Generation ---
 
 def aggregate_for_llm(telemetry_df: pd.DataFrame, grid_df: pd.DataFrame, weather_data: dict) -> str:
@@ -245,7 +256,7 @@ def aggregate_for_llm(telemetry_df: pd.DataFrame, grid_df: pd.DataFrame, weather
 
     return summary
 
-def create_prompt(aggregated_data: str, telemetry_json: str, grid_json: str) -> List[Dict[str, str]]:
+def create_prompt(aggregated_data: str, telemetry_json: str, grid_json: str, weather_forecast: dict = None) -> List[Dict[str, str]]:
     """Creates the full prompt for the Gemini model."""
     system_prompt = """
 You are an expert power plant operations analyst for a thermal power plant. Your task is to analyze real-time data from the local plant, the national energy grid, and local weather to provide a concise summary, suggest a single operational action, and generate insightful visualizations using Chart.js configurations.
@@ -285,6 +296,9 @@ Use the following raw data to construct the charts. Timestamps are in UTC.
 ### Raw Telemetry Data for Charting (resampled):
 {telemetry_json}
 
+### Weather Forecast (Next 3 days):
+{json.dumps(weather_forecast or {}, indent=2)}
+
 Please provide your complete analysis as a single JSON object.
 """
     return [
@@ -306,6 +320,7 @@ def run_analysis_pipeline_with_tools(asset_id: str = "power-plant-001", lat: flo
     telemetry_df = fetch_recent_telemetry(asset_id)
     grid_df = fetch_recent_grid_data()
     weather_data = fetch_weather_data(lat, lon)
+    weather_forecast = fetch_weather_forecast(lat, lon)
 
     if telemetry_df.empty and grid_df.empty:
         return {"error": "Failed to fetch data from both Telemetry and External services. Please ensure they are running."}
@@ -472,6 +487,12 @@ Raw data for charting:
 ### Telemetry Data:
 {telemetry_json}
 
+### Weather Data:
+{json.dumps(weather_data, indent=2)}
+
+### Weather Forecast (Next 3 days):
+{json.dumps(weather_forecast, indent=2)}
+
 Analyze this data and use the historical database as needed to provide context. Provide your analysis as a JSON object matching the LLMAnalysisResult schema.
 """
 
@@ -566,6 +587,7 @@ def run_analysis_pipeline(asset_id: str = "power-plant-001", lat: float = 60.17,
     telemetry_df = fetch_recent_telemetry(asset_id)
     grid_df = fetch_recent_grid_data()
     weather_data = fetch_weather_data(lat, lon)
+    weather_forecast = fetch_weather_forecast(lat, lon)
 
     if telemetry_df.empty and grid_df.empty:
         return {"error": "Failed to fetch data from both Telemetry and External services. Please ensure they are running."}
@@ -589,7 +611,7 @@ def run_analysis_pipeline(asset_id: str = "power-plant-001", lat: float = 60.17,
             telemetry_resampled['timestamp'] = telemetry_resampled['timestamp'].dt.strftime('%d-%b %H:%M')
             telemetry_json = telemetry_resampled.tail(25).to_json(orient='records')
 
-    messages = create_prompt(aggregated_data_str, telemetry_json, grid_json)
+    messages = create_prompt(aggregated_data_str, telemetry_json, grid_json, weather_forecast)
 
     try:
         completion = client.chat.completions.parse(
@@ -658,9 +680,11 @@ Provide your response as a JSON object matching the LLMQueryResponse schema.
             telemetry_df = fetch_recent_telemetry("power-plant-001")
             grid_df = fetch_recent_grid_data()
             weather_data = fetch_weather_data(60.17, 24.94)
+            weather_forecast = fetch_weather_forecast(60.17, 24.94)
             
             if not telemetry_df.empty or not grid_df.empty:
                 context_str = "\n\nCurrent Real-time Context:\n" + aggregate_for_llm(telemetry_df, grid_df, weather_data)
+                context_str += f"\n\nWeather Forecast (Next 3 days):\n{json.dumps(weather_forecast, indent=2)}"
         except Exception:
             # If context fetching fails, continue without it
             pass
