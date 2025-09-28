@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
 import json
-from llm_pipeline import run_analysis_pipeline, run_analysis_pipeline_with_tools
+from llm_pipeline import run_analysis_pipeline, run_analysis_pipeline_with_tools, run_query_pipeline
 
 # Page configuration
 st.set_page_config(
@@ -181,6 +181,17 @@ def main():
         else:
             st.error("❌ External Service: Offline")
     
+    # Create tabs for different views
+    tab1, tab2 = st.tabs(["📊 Dashboard", "💬 AI Chat"])
+    
+    with tab1:
+        render_dashboard_tab(telemetry_healthy, external_healthy)
+    
+    with tab2:
+        render_chat_tab()
+
+def render_dashboard_tab(telemetry_healthy, external_healthy):
+    """Render the main dashboard content."""
     if not telemetry_healthy:
         st.error("🚫 Cannot connect to the telemetry API server. Please ensure it's running on port 8002.")
         return
@@ -478,6 +489,110 @@ def main():
 
     else:
         st.error("❌ Failed to fetch telemetry data. Please check the telemetry service.")
+
+def render_chat_tab():
+    """Render the AI chat interface."""
+    st.markdown("### 🤖 AI Energy Assistant")
+    st.markdown("Ask questions about energy data, power plant operations, or request charts and analysis.")
+    
+    # Check if API is configured
+    try:
+        from llm_pipeline import client
+        if not client:
+            st.info("💡 **Demo Mode**: GEMINI_API_KEY not configured. The chat will return sample responses to demonstrate functionality.")
+    except:
+        st.info("💡 **Demo Mode**: AI service not fully configured. Showing sample responses.")
+    
+    # Initialize session state for chat history
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # Display chat history
+    if st.session_state.chat_history:
+        st.markdown("#### Chat History")
+        for i, (question, response_data) in enumerate(st.session_state.chat_history):
+            with st.expander(f"💬 Q{i+1}: {question[:60]}{'...' if len(question) > 60 else ''}", expanded=(i == len(st.session_state.chat_history) - 1)):
+                st.markdown(f"**Question:** {question}")
+                
+                if "error" in response_data:
+                    st.error(f"**Error:** {response_data['error']}")
+                else:
+                    st.markdown(f"**Response:** {response_data.get('response', 'No response available.')}")
+                    
+                    # Display charts if available
+                    charts = response_data.get('charts')
+                    if charts:
+                        st.markdown("**Generated Charts:**")
+                        for j, chart_conf in enumerate(charts):
+                            render_chart(chart_conf, f"chat_chart_{i}_{j}")
+                    
+                    # Display HTML component if available
+                    html_component = response_data.get('html_component')
+                    if html_component:
+                        st.markdown("**Additional Information:**")
+                        render_html_component(html_component, f"chat_html_{i}")
+        
+        # Clear chat history button
+        if st.button("🗑️ Clear Chat History"):
+            st.session_state.chat_history = []
+            st.rerun()
+    
+    # Chat input
+    st.markdown("---")
+    st.markdown("#### Ask a Question")
+    
+    # Example questions
+    with st.expander("💡 Example Questions"):
+        example_questions = [
+            "What were the peak electricity consumption hours in Finland during 2019?",
+            "How does wind generation correlate with electricity consumption?",
+            "Show me a chart comparing summer and winter electricity consumption patterns",
+            "What is the current status of the power plant?",
+            "Analyze the efficiency trends over the past month",
+            "What were the typical load patterns during weekdays vs weekends in 2020?"
+        ]
+        for question in example_questions:
+            if st.button(f"📋 {question}", key=f"example_{hash(question)}", help="Click to use this question"):
+                # Directly process the example question
+                with st.spinner("🧠 Processing your query..."):
+                    try:
+                        response_data = run_query_pipeline(question, include_context=True)
+                        st.session_state.chat_history.append((question, response_data))
+                        st.rerun()
+                    except Exception as e:
+                        error_response = {"error": f"Failed to process query: {str(e)}"}
+                        st.session_state.chat_history.append((question, error_response))
+                        st.error(f"Error processing query: {str(e)}")
+                        st.rerun()
+    
+    # Query input
+    user_query = st.text_area(
+        "Enter your question:",
+        height=100,
+        placeholder="Ask about energy data, power plant operations, request charts, or general energy questions...",
+        key="user_query_input"
+    )
+    
+    # Send button
+    if st.button("🚀 Send Query", type="primary", disabled=not user_query.strip()):
+        if user_query.strip():
+            with st.spinner("🧠 Processing your query..."):
+                try:
+                    # Run the query pipeline
+                    response_data = run_query_pipeline(user_query.strip(), include_context=True)
+                    
+                    # Add to chat history
+                    st.session_state.chat_history.append((user_query.strip(), response_data))
+                    
+                    # Clear the input and rerun
+                    st.session_state.user_query_input = ""
+                    st.rerun()
+                    
+                except Exception as e:
+                    error_response = {"error": f"Failed to process query: {str(e)}"}
+                    st.session_state.chat_history.append((user_query.strip(), error_response))
+                    st.error(f"Error processing query: {str(e)}")
+                    st.rerun()
 
 if __name__ == "__main__":
     main()
