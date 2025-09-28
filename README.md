@@ -26,7 +26,7 @@ The system consists of three main components:
 **Terminal 1 - Telemetry Service (Port 8002):**
 ```powershell
 cd telemetry-service
-python api.py
+python main.py
 ```
 
 **Terminal 2 - External Service (Port 8000):**
@@ -38,7 +38,7 @@ python app.py
 **Terminal 3 - Dashboard (Port 8501):**
 ```powershell
 cd dashboard
-python app.py
+streamlit run app.py
 ```
 
 ### 2. Access the Dashboard
@@ -67,18 +67,23 @@ The monitoring dashboard provides three main visualization sections:
 
 ### 1. Power Plant Overview
 - **Generator Power Output**: Real-time power generation from plant telemetry
-- **Operational Status**: Current plant performance metrics
-- **Historical Trends**: 7-day power generation history
+- **Engine Metrics**: Load percentage, RPM, and temperature monitoring
+- **Efficiency Analysis**: Performance metrics and fuel consumption tracking
+- **Battery Systems**: State of charge and power flow monitoring
+- **Environmental Data**: Ambient temperature and CO₂ emissions tracking
 
 ### 2. National Energy Mix  
 - **Nuclear Power Production**: Finnish nuclear power output
-- **Wind Power Generation**: National wind energy production
-- **Total Consumption**: Country-wide electricity consumption
+- **Wind Power Generation**: National wind energy production with weather correlation
+- **Solar Power Potential**: Photovoltaic power output and radiation data
+- **Total Consumption**: Country-wide electricity consumption patterns
 
-### 3. Grid Performance
-- **System Frequency**: Real-time grid frequency monitoring
-- **Grid Stability**: Power system operational state
-- **Service Health**: Connectivity status for all data sources
+### 3. Advanced Analytics
+- **LLM Analysis Pipeline**: Automated insights and anomaly detection
+- **Correlation Analysis**: Interactive scatter plots between metrics
+- **Time Series Analysis**: Detailed historical trends and patterns
+- **Service Health**: Real-time connectivity status for all data sources
+- **Image Processing**: Dashboard screenshot analysis and processing
 
 ## API Endpoints
 
@@ -136,17 +141,24 @@ curl "http://localhost:8000/api/production/wind-power"
 Junction_Hackathon/
 ├── dashboard/                    # Streamlit Dashboard (Port 8501)
 │   ├── app.py                   # Main dashboard application
-│   └── requirements.txt         # Dashboard dependencies
+│   ├── llm_pipeline.py          # LLM analysis pipeline
+│   ├── sqlite_tools.py          # Database utilities
+│   ├── requirements.txt         # Dashboard dependencies
+│   └── README.md                # Dashboard-specific documentation
 ├── telemetry-service/           # Telemetry API (Port 8002)  
 │   ├── api.py                   # FastAPI telemetry service
-│   ├── main.py                  # Service entry point
+│   ├── main.py                  # Service entry point (run this)
+│   ├── process_images.py        # Image processing utilities
 │   ├── telemetry_generator.py   # Data generation logic
-│   └── pyproject.toml           # Service dependencies
+│   ├── pyproject.toml           # Service dependencies
+│   ├── uv.lock                  # Service dependency lock
+│   └── images/                  # Dashboard screenshots and processed images
 ├── external-service/            # External API Mirror (Port 8000)
 │   ├── app.py                   # Fingrid API mirror service
-│   └── pyproject.toml           # API mirror dependencies  
-├── main.py                      # Project entry point
-├── uv.lock                      # Dependency lock file
+│   ├── pyproject.toml           # API mirror dependencies
+│   ├── uv.lock                  # Service dependency lock
+│   └── README.md                # Service-specific documentation
+├── uv.lock                      # Project-wide dependency lock file
 └── README.md                    # Project documentation
 ```
 
@@ -159,6 +171,9 @@ Junction_Hackathon/
 - **Pandas**: Data manipulation and analysis
 - **Requests**: HTTP client for API communication
 - **Uvicorn**: ASGI server for FastAPI services
+- **OpenAI**: LLM integration for analysis pipeline
+- **Numpy**: Numerical computing support
+- **Pydantic**: Data validation and settings management
 
 ### Data Flow
 1. **Telemetry Service** generates simulated power plant data
@@ -169,7 +184,7 @@ Junction_Hackathon/
 
 ### Port Configuration
 - **8501**: Streamlit dashboard interface
-- **8502**: Telemetry service API  
+- **8002**: Telemetry service API  
 - **8000**: External service (Fingrid mirror)
 
 ## Troubleshooting
@@ -182,6 +197,8 @@ The dashboard displays real-time service status. If any service shows as disconn
 3. Verify API key configuration for external service if needed
 
 ### Common Issues
-- **Port conflicts**: Ensure no other services are using ports 8000, 8501, 8502
+- **Port conflicts**: Ensure no other services are using ports 8000, 8501, 8002
 - **Missing dependencies**: Run `pip install -r requirements.txt` in dashboard folder
 - **API timeouts**: Check internet connection for Fingrid API access
+- **Telemetry service**: Always use `python main.py` to start the telemetry service (not `python api.py`)
+- **Dashboard startup**: Use `streamlit run app.py` to start the dashboard (not `python app.py`)
